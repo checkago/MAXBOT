@@ -1,0 +1,22 @@
+services:
+  max-bot:
+    build: .
+    container_name: chatbot-max
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      MAX_BOT_TOKEN: ${MAX_BOT_TOKEN:?set MAX_BOT_TOKEN in .env}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-deepseek-chat}
+      DEEPSEEK_API_URL: ${DEEPSEEK_API_URL:-https://api.deepseek.com/chat/completions}
+      MAX_MODE: ${MAX_MODE:-long_polling}
+      MAX_API_BASE_URL: ${MAX_API_BASE_URL:-https://platform-api2.max.ru}
+      LIBRARY_API_URL: ${LIBRARY_API_URL:-https://obs-balashiha.ru/api/v1/biblioteka_list/}
+      MAX_WEBHOOK_HOST: 0.0.0.0
+      MAX_WEBHOOK_PORT: ${MAX_WEBHOOK_PORT:-8080}
+      MAX_WEBHOOK_PATH: ${MAX_WEBHOOK_PATH:-/webhook}
+      MAX_WEBHOOK_PUBLIC_URL: ${MAX_WEBHOOK_PUBLIC_URL:-}
+      MAX_WEBHOOK_SECRET: ${MAX_WEBHOOK_SECRET:-}
+    ports:
+      - "${MAX_WEBHOOK_PORT:-8080}:${MAX_WEBHOOK_PORT:-8080}"
