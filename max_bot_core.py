@@ -14,6 +14,7 @@ from typing import Any, Callable
 from book_service import BookCatalogService, create_book_service
 from library_ai import LibraryAssistant, create_library_assistant
 from library_service import LibraryService
+from ssl_util import ssl_context
 
 
 @dataclass
@@ -95,7 +96,7 @@ class MaxApiClient:
             },
         )
         try:
-            with urllib.request.urlopen(req, timeout=self.timeout_seconds) as resp:
+            with urllib.request.urlopen(req, timeout=self.timeout_seconds, context=ssl_context()) as resp:
                 raw = resp.read().decode("utf-8")
                 if not raw.strip():
                     return {}
@@ -125,7 +126,7 @@ class MaxApiClient:
         )
         read_timeout = self.timeout_seconds if timeout_seconds is None else timeout_seconds
         try:
-            with urllib.request.urlopen(req, timeout=read_timeout) as resp:
+            with urllib.request.urlopen(req, timeout=read_timeout, context=ssl_context()) as resp:
                 raw = resp.read().decode("utf-8")
                 if not raw.strip():
                     return {}

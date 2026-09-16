@@ -6,6 +6,7 @@ import urllib.request
 from typing import Any
 
 from library_service import LibraryService
+from ssl_util import ssl_context
 
 DEFAULT_API_URL = "https://api.deepseek.com/chat/completions"
 DEFAULT_MODEL = "deepseek-chat"
@@ -48,7 +49,7 @@ class LibraryAssistant:
             },
         )
         try:
-            with urllib.request.urlopen(req, timeout=self.timeout_seconds) as resp:
+            with urllib.request.urlopen(req, timeout=self.timeout_seconds, context=ssl_context()) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
         except urllib.error.HTTPError as exc:
             details = exc.read().decode("utf-8", errors="ignore")

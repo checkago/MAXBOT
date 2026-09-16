@@ -5,6 +5,8 @@ import urllib.request
 from dataclasses import dataclass
 from typing import Any
 
+from ssl_util import ssl_context
+
 
 DEFAULT_API_URL = "https://obs-balashiha.ru/api/v1/biblioteka_list/"
 CACHE_TTL_SECONDS = 3600
@@ -34,7 +36,7 @@ class LibraryService:
 
     def _fetch_raw(self) -> list[dict[str, Any]]:
         req = urllib.request.Request(self.api_url, headers={"Accept": "application/json"})
-        with urllib.request.urlopen(req, timeout=30) as resp:
+        with urllib.request.urlopen(req, timeout=30, context=ssl_context()) as resp:
             data = json.loads(resp.read().decode("utf-8"))
         if not isinstance(data, list):
             raise RuntimeError("Unexpected library API response")
