@@ -6,7 +6,6 @@ __pycache__
 .env
 max_token.txt
 deepseek_token.txt
-books_balashiha.json
 parse_books.py
 *.ps1
 tmp_*

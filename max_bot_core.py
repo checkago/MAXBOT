@@ -11,6 +11,7 @@ import urllib.request
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
+from book_service import BookCatalogService, create_book_service
 from library_ai import LibraryAssistant, create_library_assistant
 from library_service import LibraryService
 
@@ -441,6 +442,10 @@ def map_user_input(text: str) -> str:
     if library_match:
         return f"/biblioteka {library_match.group(1).strip()}"
 
+    book_direct = re.match(r"^(?:найти|ищу|есть)\s+(?:книгу|книга)\s+(.+)$", raw, re.I)
+    if book_direct:
+        return f"action:search_books_query:{book_direct.group(1).strip()}"
+
     if re.search(r"\b(список|все)\s+библиотек", lowered):
         return "/biblioteki"
 
@@ -543,6 +548,12 @@ class BotCore:
                 self.storage.set(message.user_id, ctx.session)
                 return reply
 
+        if text.startswith("action:search_books_query:"):
+            if self.fallback_handler:
+                reply = normalize_reply(self.fallback_handler(ctx))
+                self.storage.set(message.user_id, ctx.session)
+                return reply
+
         if text.startswith("action:"):
             action_reply = handle_action(text, ctx)
             self.storage.set(message.user_id, ctx.session)
@@ -628,18 +639,29 @@ HELP_TEXT = (
     "• библиотеки — список филиалов\n"
     "• библиотека 4 — контакты и режим работы\n"
     "• или просто спросите: «когда работает библиотека в Павлино?»\n"
-    "• поиск книг — найти книгу\n"
+    "• поиск книг — по теме, сюжету, автору или названию\n"
     "• помощь — эта справка\n\n"
     "Или используйте кнопки меню ниже."
 )
+
+
+def looks_like_book_query(text: str) -> bool:
+    return bool(
+        re.search(
+            r"(?i)(книг|роман|повесть|рассказ|поэм|почитать|сюжет|автор|каталог|"
+            r"программирован|по теме|что почитать)",
+            text,
+        )
+    )
 
 
 def handle_action(action: str, ctx: BotContext) -> BotReply:
     if action == "action:search_books":
         ctx.session["mode"] = "book_search"
         return as_menu_reply(
-            "Введите название книги или автора.\n"
-            "Пример: Толстой\n"
+            "Опишите, что ищете: тему, сюжет, автора или название.\n"
+            "Пример: книги по программированию\n"
+            "Пример: про школу магии\n"
             "Пример: война и мир"
         )
     return as_menu_reply(f"Неизвестное действие: {action}")
@@ -655,24 +677,37 @@ def reply_to_text(
     text: str,
     session: dict[str, Any] | None = None,
     assistant: LibraryAssistant | None = None,
+    books: BookCatalogService | None = None,
 ) -> BotReply:
     session = session or {}
     text = map_user_input(text.strip())
     if not text:
         return as_menu_reply(HELP_TEXT)
 
+    if text.startswith("action:search_books_query:"):
+        query = text.split(":", 2)[2].strip()
+        session["mode"] = "book_search"
+        if books:
+            return as_menu_reply(books.format_search_result(query, assistant))
+        return as_menu_reply(
+            f"Поиск книг «{query}» временно недоступен.\n"
+            "Пока используйте каталог: https://biblio.mosreg.ru/books"
+        )
+
     if text.startswith("action:"):
         ctx = BotContext(message=ChatMessage("", "", "", text), session=session)
         return handle_action(text, ctx)
 
     if session.get("mode") == "book_search" and not text.startswith("/"):
-        session["mode"] = ""
+        if books:
+            return as_menu_reply(books.format_search_result(text, assistant))
         return as_menu_reply(
-            f"Поиск книг «{text}» скоро будет доступен.\n"
+            f"Поиск книг «{text}» временно недоступен.\n"
             "Пока используйте каталог: https://biblio.mosreg.ru/books"
         )
 
     if text.startswith("/"):
+        session["mode"] = ""
         cmd = text.split()[0].lower()
         if cmd == "/start":
             return as_menu_reply(
@@ -697,6 +732,10 @@ def reply_to_text(
                     "Или нажмите «Библиотеки»."
                 )
             return as_menu_reply(libraries.format_search_result(query))
+
+    if books and looks_like_book_query(text):
+        session["mode"] = "book_search"
+        return as_menu_reply(books.format_search_result(text, assistant))
 
     if assistant and assistant.is_available():
         try:
@@ -724,6 +763,7 @@ def create_library_service() -> LibraryService:
 
 def run_cli_mode() -> None:
     libraries = create_library_service()
+    books = create_book_service()
     assistant = create_library_assistant()
     if assistant:
         print("DeepSeek подключён — можно задавать вопросы на русском.")
@@ -740,7 +780,7 @@ def run_cli_mode() -> None:
             break
         if not text:
             continue
-        print(reply_to_text(libraries, text, assistant=assistant).text)
+        print(reply_to_text(libraries, text, assistant=assistant, books=books).text)
         print()
 
 
@@ -765,36 +805,42 @@ def build_bot_from_env() -> BotCore:
     )
     bot = BotCore(client=client)
     libraries = create_library_service()
+    books = create_book_service()
     assistant = create_library_assistant()
+
+    if books.is_available():
+        print(f"Каталог книг: загружен ({books.book_count()} книг)")
+    else:
+        print("Каталог книг: не загружен")
 
     @bot.command("/start")
     def start(ctx: BotContext) -> BotReply:
         ctx.session.setdefault("visits", 0)
         ctx.session["visits"] += 1
-        return reply_to_text(libraries, "/start", ctx.session, assistant)
+        return reply_to_text(libraries, "/start", ctx.session, assistant, books)
 
     @bot.command("/help")
     def help_cmd(ctx: BotContext) -> BotReply:
-        return reply_to_text(libraries, "/help", ctx.session, assistant)
+        return reply_to_text(libraries, "/help", ctx.session, assistant, books)
 
     @bot.command("/biblioteki")
     def biblioteki(ctx: BotContext) -> BotReply:
-        return reply_to_text(libraries, "/biblioteki", ctx.session, assistant)
+        return reply_to_text(libraries, "/biblioteki", ctx.session, assistant, books)
 
     @bot.command("/biblioteka")
     def biblioteka(ctx: BotContext) -> BotReply:
-        return reply_to_text(libraries, ctx.message.text, ctx.session, assistant)
+        return reply_to_text(libraries, ctx.message.text, ctx.session, assistant, books)
 
     @bot.command("/ping")
     def ping(ctx: BotContext) -> BotReply:
-        return reply_to_text(libraries, "/ping", ctx.session, assistant)
+        return reply_to_text(libraries, "/ping", ctx.session, assistant, books)
 
     @bot.on_fallback
     def fallback(ctx: BotContext) -> BotReply:
         if ctx.message.callback_payload:
             mapped = CALLBACK_ACTIONS.get(ctx.message.callback_payload, ctx.message.callback_payload)
-            return reply_to_text(libraries, mapped, ctx.session, assistant)
-        return reply_to_text(libraries, ctx.message.text, ctx.session, assistant)
+            return reply_to_text(libraries, mapped, ctx.session, assistant, books)
+        return reply_to_text(libraries, ctx.message.text, ctx.session, assistant, books)
 
     return bot
 

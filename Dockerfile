@@ -16,7 +16,7 @@ RUN apt-get update \
 
 WORKDIR /app
 
-COPY max_bot_core.py library_service.py library_ai.py docker-entrypoint.sh ./
+COPY max_bot_core.py library_service.py library_ai.py book_service.py books_balashiha.json docker-entrypoint.sh ./
 
 RUN chmod +x docker-entrypoint.sh \
     && useradd -r -u 10001 -s /usr/sbin/nologin appuser \
