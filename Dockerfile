@@ -2,6 +2,8 @@ FROM ubuntu:22.04
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
+    SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt \
+    REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt \
     MAX_API_BASE_URL=https://platform-api2.max.ru \
     MAX_MODE=long_polling \
     MAX_WEBHOOK_HOST=0.0.0.0 \
@@ -13,6 +15,10 @@ RUN apt-get update \
         python3 \
         ca-certificates \
     && rm -rf /var/lib/apt/lists/*
+
+COPY russian_trusted_root_ca.cer /usr/local/share/ca-certificates/russian_trusted_root_ca.crt
+COPY russian_trusted_sub_ca.cer /usr/local/share/ca-certificates/russian_trusted_sub_ca.crt
+RUN update-ca-certificates
 
 WORKDIR /app
 
