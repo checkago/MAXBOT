@@ -1,5 +1,6 @@
 import json
 import http.server
+import logging
 import os
 import re
 import socketserver
@@ -15,6 +16,8 @@ from book_service import BookCatalogService, create_book_service
 from library_ai import LibraryAssistant, create_library_assistant
 from library_service import LibraryService
 from ssl_util import ssl_context
+
+logger = logging.getLogger("maxbot")
 
 
 @dataclass
@@ -470,6 +473,7 @@ class BotCore:
         self._marker: int | None = None
         self._seen_updates: dict[str, float] = {}
         self._seen_updates_ttl = 3600.0
+        self._request_count = 0
 
     def _remember_update(self, upd: dict[str, Any]) -> bool:
         key = MaxUpdateParser.update_key(upd)
@@ -484,12 +488,28 @@ class BotCore:
         self._seen_updates[key] = now
         return True
 
+    def _log_request(self, msg: ChatMessage) -> None:
+        self._request_count += 1
+        update_type = MaxUpdateParser._pick_str(msg.raw, ["update_type", "type"]) or "unknown"
+        preview = (msg.callback_payload or msg.text or "").replace("\n", " ").strip()
+        if len(preview) > 120:
+            preview = preview[:117] + "..."
+        logger.info(
+            "REQUEST #%s type=%s user_id=%s chat_id=%s text=%r",
+            self._request_count,
+            update_type,
+            msg.user_id,
+            msg.chat_id,
+            preview,
+        )
+
     def _handle_update(self, upd: dict[str, Any]) -> bool:
         if not self._remember_update(upd):
             return False
         msg = MaxUpdateParser.parse(upd)
         if not msg:
             return False
+        self._log_request(msg)
         reply = self._dispatch(msg)
         if reply and reply.text:
             try:
@@ -512,8 +532,7 @@ class BotCore:
                         attachments=reply.attachments,
                     )
             except Exception:
-                print("Failed to send reply:")
-                traceback.print_exc()
+                logger.exception("Failed to send reply")
                 return False
         return True
 
@@ -587,8 +606,7 @@ class BotCore:
             except KeyboardInterrupt:
                 raise
             except Exception:
-                print("Polling error:")
-                traceback.print_exc()
+                logger.exception("Polling error")
                 time.sleep(backoff)
                 backoff = min(backoff * 2.0, 30.0)
 
@@ -847,6 +865,11 @@ def build_bot_from_env() -> BotCore:
 
 
 if __name__ == "__main__":
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(message)s",
+        datefmt="%Y-%m-%dT%H:%M:%S",
+    )
     mode = os.getenv("MAX_MODE", "long_polling").strip().lower()
     if mode == "cli":
         run_cli_mode()
@@ -854,9 +877,9 @@ if __name__ == "__main__":
         bot = build_bot_from_env()
         assistant = create_library_assistant()
         if assistant:
-            print("DeepSeek: подключён")
+            logger.info("DeepSeek: подключён")
         else:
-            print("DeepSeek: не настроен (создайте deepseek_token.txt для ИИ-ответов)")
+            logger.info("DeepSeek: не настроен (создайте deepseek_token.txt для ИИ-ответов)")
         if mode == "webhook":
             host = os.getenv("MAX_WEBHOOK_HOST", "0.0.0.0").strip()
             port = int(os.getenv("MAX_WEBHOOK_PORT", "8080").strip())
@@ -866,10 +889,9 @@ if __name__ == "__main__":
                 secret = os.getenv("MAX_WEBHOOK_SECRET", "").strip() or None
                 try:
                     resp = bot.client.set_webhook_subscription(public_url.rstrip("/") + path, secret=secret)
-                    print(f"Webhook subscription set: {resp}")
+                    logger.info("Webhook subscription set: %s", resp)
                 except Exception:
-                    print("Failed to set webhook subscription automatically:")
-                    traceback.print_exc()
+                    logger.exception("Failed to set webhook subscription automatically")
             bot.run_webhook_server(host=host, port=port, webhook_path=path)
         else:
             bot.run_forever(idle_seconds=1.0)
